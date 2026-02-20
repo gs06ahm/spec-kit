@@ -7,6 +7,70 @@ All notable changes to the Specify CLI and templates are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-02-20
+
+### Added
+
+- **GitHub Projects Integration (Phase 1 & 2)**: Optional integration with GitHub Projects for task management
+  - **Phase 1 - Configuration & CLI**:
+    - New `specify projects` command group with subcommands:
+      - `specify projects enable` - Enable GitHub Projects for current repository
+      - `specify projects disable` - Disable GitHub Projects integration
+      - `specify projects status` - Show current integration status
+      - `specify projects sync` - Sync tasks.md with GitHub Project (scaffolded)
+    - Configuration storage in `.specify/github-projects.json`
+    - GitHub authentication support via token, environment variables, or gh CLI
+    - Tasks.md parser for extracting phases, user stories, and tasks
+    - Dependency graph builder following Spec-Kit conventions
+  - **Phase 2 - GitHub API Client**:
+    - Full GraphQL API client with rate limiting and retry logic
+    - Query builders for Projects API operations
+    - Mutation builders for creating/updating projects, fields, issues
+    - High-level API wrapper for simplified operations
+    - Comprehensive error handling and logging
+  - Data models: `Task`, `Phase`, `StoryGroup`, `TasksDocument`, `DependencyGraph`
+  - New modules:
+    - `src/specify_cli/github/` - GitHub API integration (7 files)
+    - `src/specify_cli/parser/` - Tasks.md parsing (4 files)
+  - Documentation: `GITHUB_PROJECTS.md` with full feature documentation
+
+### Technical Details
+
+- **GraphQL Client** (`github/graphql_client.py`):
+  - Automatic rate limiting with adaptive delays
+  - Exponential backoff retry logic (up to 3 retries)
+  - Comprehensive error handling for API errors, timeouts, HTTP errors
+  - Rate limit tracking and reporting
+  
+- **API Queries** (`github/queries.py`):
+  - `get_viewer()` - Get authenticated user
+  - `get_repository()` - Get repository information
+  - `find_project()` - Find project by owner and number
+  - `get_project_items()` - Get project items with pagination
+  
+- **API Mutations** (`github/mutations.py`):
+  - `create_project()` - Create new ProjectV2
+  - `update_project()` - Update project details
+  - `create_field()` - Create custom fields (text, single-select, etc.)
+  - `create_issue()` - Create issues
+  - `update_issue()` - Update issue state
+  - `add_project_item()` - Add items to project
+  - `update_field_value()` - Set custom field values
+  - `create_label()` - Create labels
+  
+- **High-Level API** (`github/api.py`):
+  - Simplified wrapper around GraphQL operations
+  - Context manager support for resource cleanup
+  - Automatic pagination handling
+  - Configuration integration
+
+### Notes
+
+- GitHub Projects sync functionality (Phase 4-5) not yet implemented
+- API client fully functional and tested with real GitHub API
+- All code follows "minimal changes" principle - zero impact on existing features
+- Feature is opt-in (disabled by default)
+
 ## [0.1.0] - 2026-01-28
 
 ### Added
