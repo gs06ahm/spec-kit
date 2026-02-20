@@ -152,35 +152,166 @@ class IssueManager:
         console.print(f"[green]✓ Created {len(task_issue_map)} issues[/green]")
         return task_issue_map
     
-    def set_field_values(
+    def _get_project_item_id(self, project_id: str, issue_number: int) -> Optional[str]:
+        """Get the project item ID for an issue that's already in the project."""
+        query = '''
+        query GetProjectItemId($projectId: ID!) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              items(first: 100) {
+                nodes {
+                  id
+                  content {
+                    ... on Issue {
+                      number
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        '''
+        
+        variables = {
+            "projectId": project_id
+        }
+        
+        result = self.client.execute(query, variables)
+        items = result["node"]["items"]["nodes"]
+        
+        for item in items:
+            if item.get("content") and item["content"].get("number") == issue_number:
+                return item["id"]
+        
+        return None
+
+    def set_field_values_all(
         self,
         doc: TasksDocument,
         project_id: str,
-        task_issue_map: Dict[str, str],
+        task_issue_map: Dict[str, Dict],
+        group_issue_map: Dict[str, Dict],
         field_ids: Dict[str, Any]
     ) -> None:
         """
-        Set custom field values for all task issues.
+        Set custom field values for all task and group issues.
         
         Args:
             doc: Parsed tasks document
             project_id: Project node ID
-            task_issue_map: Map of task IDs to issue node IDs
+            task_issue_map: Map of task IDs to issue dictionaries  
+            group_issue_map: Map of group keys to issue dictionaries
             field_ids: Field IDs from setup_custom_fields
         """
-        console.print(f"[cyan]Setting field values for {len(task_issue_map)} tasks...[/cyan]")
+        total_items = len(task_issue_map) + len(group_issue_map)
+        console.print(f"[cyan]Setting field values for {total_items} items ({len(task_issue_map)} tasks, {len(group_issue_map)} groups)...[/cyan]")
         
-        # First, we need to get the project item IDs for each issue
-        # For now, we'll need to add each issue to the project and get the item ID
-        task_item_map = {}
-        for task_id, issue_id in task_issue_map.items():
-            # Issue was already added to project via projectV2Ids in creation
-            # We need to query for the item ID - for now, skip field values
-            # This will be a future enhancement
-            pass
+        # Set field values for tasks
+        task_set_count = 0
+        for task_id, issue in task_issue_map.items():
+            # Get the project item ID
+            item_id = self._get_project_item_id(project_id, issue["number"])
+            if not item_id:
+                console.print(f"[yellow]  ⚠ Could not find project item for task {task_id}[/yellow]")
+                continue
+            
+            # Find the task, phase, and group
+            task = None
+            for t in doc.all_tasks:
+                if t.id == task_id:
+                    task = t
+                    break
+            
+            if not task:
+                continue
+            
+            # Find the phase
+            phase = None
+            for p in doc.phases:
+                if p.number == task.phase_number:
+                    phase = p
+                    break
+            
+            if not phase:
+                continue
+            
+            # Find the group
+            group = None
+            if task.group_title:
+                for g in phase.groups:
+                    if g.title == task.group_title:
+                        group = g
+                        break
+            
+            # Set field values
+            self._set_field_values(
+                project_id, item_id, task, phase, group, field_ids
+            )
+            task_set_count += 1
         
-        console.print("[yellow]⚠ Field value setting skipped - issues created with projectV2Ids[/yellow]")
-        console.print("[yellow]  Custom fields can be set manually in the project UI[/yellow]")
+        # Set field values for task groups
+        group_set_count = 0
+        for group_key, issue in group_issue_map.items():
+            # Parse group_key: "phase_number:group_title"
+            parts = group_key.split(":", 1)
+            if len(parts) != 2:
+                continue
+            phase_number = int(parts[0])
+            group_title = parts[1]
+            
+            # Get the project item ID
+            item_id = self._get_project_item_id(project_id, issue["number"])
+            if not item_id:
+                console.print(f"[yellow]  ⚠ Could not find project item for group {group_title}[/yellow]")
+                continue
+            
+            # Find the phase
+            phase = None
+            for p in doc.phases:
+                if p.number == phase_number:
+                    phase = p
+                    break
+            
+            if not phase:
+                continue
+            
+            # Find the group
+            group = None
+            for g in phase.groups:
+                if g.title == group_title:
+                    group = g
+                    break
+            
+            if not group:
+                continue
+            
+            # Set field values for group
+            self._set_group_field_values(
+                project_id, item_id, phase, group, field_ids
+            )
+            group_set_count += 1
+        
+        console.print(f"[green]✓ Set field values for {task_set_count} tasks and {group_set_count} groups[/green]")
+    
+    def _set_group_field_values(
+        self,
+        project_id: str,
+        item_id: str,
+        phase: Phase,
+        group: StoryGroup,
+        field_ids: Dict[str, Any]
+    ) -> None:
+        """Set custom field values for a task group project item."""
+        # Set Phase field - this allows the group to appear in the correct Phase group
+        phase_name = f"Phase {phase.number}: {phase.title}"
+        if phase_name in field_ids.get("Phase_options", {}):
+            self._set_single_select_field(
+                project_id,
+                item_id,
+                field_ids["Phase"],
+                field_ids["Phase_options"][phase_name]
+            )
     
     def _create_task_issue(
         self,

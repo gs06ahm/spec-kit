@@ -126,15 +126,17 @@ class SyncEngine:
             labels=labels
         )
         
-        # Extract task issues for field value setting and dependencies
+        # Extract issues for field value setting and dependencies
         task_issue_map = hierarchy["task_issues"]
+        group_issue_map = hierarchy["group_issues"]
         
-        # Set custom field values on task issues
+        # Set custom field values on task and group issues
         console.print("\n[bold cyan]Step 8:[/bold cyan] Setting custom field values")
-        issue_manager.set_field_values(
+        issue_manager.set_field_values_all(
             doc=doc,
             project_id=project_id,
             task_issue_map=task_issue_map,
+            group_issue_map=group_issue_map,
             field_ids=field_ids
         )
         

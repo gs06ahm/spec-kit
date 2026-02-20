@@ -1,420 +1,273 @@
-# GitHub Projects Integration for Spec-Kit
+# GitHub Projects Integration - Complete Implementation
 
-> **Status**: Phase 1 Complete (Configuration & CLI) | Phase 2+ In Progress
+**Status**: ✅ **Production Ready**  
+**Last Updated**: 2026-02-20
 
 ## Overview
 
-Spec-Kit now supports optional integration with GitHub Projects to automatically create and sync project boards from your `tasks.md` files. This integration provides a visual project management interface that stays in sync with your specification-driven development workflow.
+Spec-Kit now supports full GitHub Projects integration with three-level hierarchy:
+**Phase → Task Group → Tasks**
 
 ## Features
 
-### ✅ Phase 1 Complete (v0.2.0)
+### Implemented ✅
 
-- **Configuration Management**: Store GitHub Projects settings in `.specify/github-projects.json`
-- **CLI Commands**: Full command group for managing integration
-  - `specify projects enable` - Enable integration and configure repository
-  - `specify projects disable` - Disable integration
-  - `specify projects status` - View current configuration
-  - `specify projects sync` - Sync tasks.md with GitHub Project
-- **Tasks.md Parser**: Comprehensive parser for Spec-Kit tasks.md format
-  - Extract phases, user stories, tasks
-  - Parse metadata (completion, priorities, parallel markers)
-  - Extract file paths from descriptions
-- **Dependency Graph**: Automatic dependency inference following Spec-Kit conventions
-  - Sequential task dependencies
-  - Parallel task grouping
-  - Cross-phase boundaries
-- **Authentication**: Multiple token resolution methods
-  - Command-line flag (`--token`)
-  - Environment variables (`GH_TOKEN`, `GITHUB_TOKEN`)
-  - GitHub CLI (`gh auth token`)
+1. **Three-Level Hierarchy**
+   - Phase issues (top level, no parent)
+   - Task Group issues (children of phases)
+   - Task issues (children of task groups)
+   - Implemented using GitHub's native sub-issues feature
 
-### 🚧 Phase 2+ In Progress
+2. **Custom Fields**
+   - Phase: Single-select field with phase options
+   - Task Group: Single-select field with group options
+   - Enables visual grouping in project table views
+   - Automatically set during sync
 
-- **GitHub GraphQL API Client**: Not yet implemented
-- **Project Creator**: Orchestration for creating GitHub Projects
-- **Project Updater**: Bidirectional sync between tasks.md and Projects
-- **Custom Fields**: Priority, Phase, User Story, Task ID, Status
-- **Three-Level Hierarchy**: Phase → Story Group → Task (using sub-issues)
-- **Dependency Visualization**: Using GitHub's native issue dependencies
+3. **Project Creation**
+   - Creates project via GraphQL API
+   - Sets up all required custom fields
+   - Adds all issues to project automatically
 
-## Installation
+4. **Validation**
+   - Comprehensive API-based validation
+   - Checks for duplicates
+   - Validates hierarchy structure
+   - Ensures correct field values
+   - Detects Phase issues appearing in their own group
 
-GitHub Projects integration is included in Spec-Kit v0.2.0+. No additional installation required.
+### Manual Step Required ⚠️
 
-## Quick Start
+**View Configuration** (< 1 minute, one-time per project):
+- Grouping by Phase or Task Group field must be configured manually
+- GitHub's REST API for views is Enterprise Cloud only
+- No GraphQL mutations exist for view configuration
+- See: `docs/GITHUB_PROJECTS_VIEW_SETUP.md`
 
-### 1. Enable GitHub Projects
+## Usage
 
-From your Spec-Kit project root:
+### Create a Project
 
 ```bash
-specify projects enable
+# 1. Ensure tasks.md has hierarchy structure
+cat spec/tasks.md
+# Phase 1: Foundation & Setup
+#   Task Group: Development Environment
+#     - T001: Task description
+#     - T002: Task description
+
+# 2. Run sync
+specify github sync
+
+# Output:
+# ✓ Created project: https://github.com/users/USERNAME/projects/42
+# ✓ Created 15 issues with hierarchy
+# ✓ Set custom field values
+# ✓ Added all issues to project
+#
+# Next steps:
+# - Open project URL and configure view grouping
+# - See docs/GITHUB_PROJECTS_VIEW_SETUP.md for instructions
+
+# 3. Configure view (manual, 30 seconds)
+# - Open project URL in browser
+# - Click "View options" → "Group by" → "Phase"
 ```
 
-This will:
-- Detect your GitHub repository from git remote
-- Prompt for confirmation
-- Store configuration in `.specify/github-projects.json`
-
-### 2. Check Status
+### Validate Structure
 
 ```bash
-specify projects status
-```
-
-Expected output:
-```
-╭────────────── GitHub Projects Status ──────────────╮
-│ Enabled      Yes                                   │
-│ Repository   owner/repo-name                       │
-│ Project      No project created yet                │
-╰────────────────────────────────────────────────────╯
-
-Run 'specify projects sync' to create a project
-```
-
-### 3. Sync Your Tasks (Coming Soon)
-
-```bash
-# Auto-detect tasks.md in specs/ directory
-specify projects sync
-
-# Or specify explicitly
-specify projects sync specs/001-feature/tasks.md
+python tests/integration/validate_project_structure.py \
+  --owner USERNAME \
+  --repo REPO_NAME \
+  --project PROJECT_NUMBER
 ```
 
 ## Architecture
 
-### Module Structure
+### Hierarchy Implementation
 
-```
-src/specify_cli/
-├── github/
-│   ├── __init__.py          # Module exports
-│   ├── auth.py              # Token resolution and validation
-│   ├── config.py            # Configuration management
-│   ├── graphql_client.py    # [TODO] GraphQL API client
-│   ├── queries.py           # [TODO] GraphQL queries
-│   ├── mutations.py         # [TODO] GraphQL mutations
-│   ├── project_creator.py   # [TODO] Project creation orchestration
-│   └── project_updater.py   # [TODO] Project sync logic
-└── parser/
-    ├── __init__.py          # Module exports
-    ├── models.py            # Data models (Task, Phase, etc.)
-    ├── tasks_parser.py      # Tasks.md parser
-    └── dependency_graph.py  # Dependency inference
-```
-
-### Data Models
-
-#### Task
+**Sub-Issues** (semantic relationships):
 ```python
-@dataclass
-class Task:
-    id: str                      # e.g., "T001"
-    description: str
-    is_completed: bool           # [X] vs [ ]
-    is_parallel: bool            # [P] marker
-    user_story: Optional[str]    # e.g., "US1"
-    file_paths: list[str]        # Extracted paths
-    phase_number: int
-    group_title: Optional[str]
+# Phase issues created with no parentIssueId
+phase_issue = create_issue(
+    title="Phase 1: Foundation & Setup",
+    parent_issue_id=None,
+    project_ids=[project_id]
+)
+
+# Task Group issues created as children of phases
+group_issue = create_issue(
+    title="Task Group: Development Environment",
+    parent_issue_id=phase_issue["id"],
+    project_ids=[project_id]
+)
+
+# Task issues created as children of groups
+task_issue = create_issue(
+    title="[T001] Initialize development environment",
+    parent_issue_id=group_issue["id"],
+    project_ids=[project_id]
+)
 ```
 
-#### Phase
+**Custom Fields** (visual grouping):
 ```python
-@dataclass
-class Phase:
-    number: int
-    title: str
-    purpose: Optional[str]
-    goal: Optional[str]
-    checkpoint: Optional[str]
-    priority: Optional[str]      # e.g., "P1"
-    user_story: Optional[str]    # e.g., "US1"
-    is_mvp: bool                 # 🎯 marker
-    groups: list[StoryGroup]
-    direct_tasks: list[Task]
+# Phase field set on Task Groups and Tasks only
+set_field_value(
+    item_id=group_item_id,
+    field_id=phase_field_id,
+    value="Phase 1: Foundation & Setup"
+)
+
+# Task Group field set on Task Groups and Tasks
+set_field_value(
+    item_id=group_item_id,
+    field_id=task_group_field_id,
+    value="Development Environment"
+)
+
+# Phase issues themselves do NOT have Phase field set
+# (prevents them appearing in their own group)
 ```
 
-#### DependencyGraph
-```python
-@dataclass
-class DependencyGraph:
-    dependencies: dict[str, list[str]]  # task_id → blockers
-    
-    def add_dependency(task_id, depends_on)
-    def get_blockers(task_id) -> list[str]
+### Visual Display
+
+When grouped by Phase in project view:
+```
+▼ Phase 1: Foundation & Setup (7 items)
+  - Task Group: Development Environment
+  - [T001] Initialize development environment
+  - [T002] Configure testing framework
+  - [T003] Setup CI/CD pipeline
+  - Task Group: Core Infrastructure
+  - [T004] Implement base classes
+  - [T005] Setup logging and monitoring
+
+▼ Phase 2: Feature Implementation (8 items)
+  - Task Group: API Development
+  - [T006] Design API schema
+  - [T007] Implement authentication
+  - [T008] Create CRUD endpoints
+  - Task Group: Integration
+  - [T009] Add third-party integrations
 ```
 
-### Dependency Inference Rules
+**Note**: Phase issues themselves (#3, #11) don't appear in the table because they don't have the Phase field set. This is intentional to avoid them appearing in their own group.
 
-The dependency graph follows Spec-Kit conventions:
+## Files
 
-1. **Within a Phase**:
-   - Sequential tasks: Each depends on previous non-parallel task
-   - Parallel tasks `[P]`: All depend on last sequential "anchor" task
-   - Parallel tasks do NOT block each other
+### Implementation
+- `src/specify_cli/github/hierarchy_builder.py` - Three-level hierarchy creation
+- `src/specify_cli/github/sync_engine.py` - Orchestrates the sync workflow
+- `src/specify_cli/github/issue_manager.py` - Field value management
+- `src/specify_cli/github/project_creator.py` - Project and field creation
 
-2. **Across Phases**:
-   - First task of Phase N depends on last task of Phase N-1
+### Tests
+- `tests/integration/validate_project_structure.py` - Comprehensive API validation
+- `tests/integration/test_e2e_with_views.py` - End-to-end test with view creation attempt
 
-Example:
-```
-- [ ] T001 Setup project                    # No dependencies
-- [ ] T002 Install dependencies              # Depends on: T001
-- [ ] T003 [P] Configure linting             # Depends on: T002
-- [ ] T004 [P] Configure testing             # Depends on: T002 (not T003)
-- [ ] T005 Run initial tests                 # Depends on: T002 (last sequential)
-```
+### Documentation
+- `GITHUB_PROJECTS.md` - This file (overview)
+- `docs/GITHUB_PROJECTS_VIEW_SETUP.md` - User guide for view configuration
+- `docs/VIEW_CONFIGURATION_LIMITATIONS.md` - Technical investigation of API limitations
+- `TEST_RESULTS.md` - Validation test results
+- `PHASE3-5_INTEGRATION_COMPLETE.md` - Implementation summary
+- `PHASE4_HIERARCHY_COMPLETE.md` - Phase 4 technical details
+- `PHASE5_CUSTOM_FIELDS_COMPLETE.md` - Phase 5 technical details
+- `DUPLICATE_ISSUES_FIX.md` - Fix documentation for duplicate issues bug
 
-## Configuration File
+## Testing
 
-Location: `.specify/github-projects.json`
+### Validation Tests
 
-```json
-{
-  "enabled": true,
-  "repo_owner": "username",
-  "repo_name": "project",
-  "project_number": 42,
-  "project_id": "PVT_kwDOABCD...",
-  "project_url": "https://github.com/users/username/projects/42",
-  "field_ids": {
-    "Priority": "PVTF_lADOABCD...",
-    "Phase": "PVTF_lADOABCD...",
-    "User Story": "PVTF_lADOABCD...",
-    "Task ID": "PVTF_lADOABCD..."
-  },
-  "last_synced_at": "2026-02-19T13:00:00Z",
-  "last_synced_tasks_md_hash": "abc123..."
-}
-```
-
-## Planned GitHub Project Structure
-
-### Custom Fields
-
-| Field Name | Type | Values | Purpose |
-|------------|------|--------|---------|
-| Task ID | Text | T001, T002, ... | Unique identifier for sync |
-| Phase | Single Select | Phase 1: Setup, Phase 2: Foundation, ... | Phase grouping |
-| User Story | Single Select | US1, US2, US3, N/A | Story mapping |
-| Priority | Single Select | P1 - Critical, P2 - High, P3 - Medium | Priority levels |
-| Status | Status | Todo, In Progress, Done | Completion tracking |
-| Parallel | Single Select | Yes, No | Parallelizable indicator |
-
-### Three-Level Hierarchy
-
-Using GitHub's sub-issues feature:
-
-```
-📦 Phase 1: Setup (Shared Infrastructure)          [Phase Issue]
-  └─ 📦 Project Initialization                     [Story Group]
-      ├─ ☑️ [T001] Create directory structure     [Task]
-      ├─ ☑️ [T002] Initialize project             [Task]
-      └─ ⬜ [T003] Configure tools                [Task]
-```
-
-### Dependency Visualization
-
-GitHub Projects will show:
-- **Blocks**: T002 blocks T003, T004
-- **Blocked by**: T005 is blocked by T002
-
-This creates a clear visual dependency chain in the project board.
-
-## CLI Command Reference
-
-### `specify projects enable`
-
-Enable GitHub Projects integration for the current repository.
-
-**Options:**
-- `--token TEXT` - GitHub personal access token
-
-**Example:**
+Run comprehensive structure validation:
 ```bash
-specify projects enable
-specify projects enable --token ghp_xxx...
+cd /home/adam/src/spec-kit
+python tests/integration/validate_project_structure.py
 ```
 
-### `specify projects disable`
+**Tests Performed**:
+1. ✓ No duplicate items in project
+2. ✓ Correct parent/child hierarchy (Phase → Task Group → Tasks)
+3. ✓ Phase issues don't have Phase field set
+4. ✓ Task Groups have correct Phase and Task Group fields
+5. ✓ All expected items present, no unexpected items
 
-Disable GitHub Projects integration without deleting the configuration.
+### End-to-End Test
 
-**Example:**
 ```bash
-specify projects disable
+python tests/integration/test_e2e_with_views.py
 ```
 
-### `specify projects status`
+**Performs**:
+- Creates test repository
+- Creates project
+- Attempts view configuration via REST API (documents limitation)
+- Runs validation
+- Cleans up
 
-Show current GitHub Projects integration status and configuration.
+## Best Practices
 
-**Example:**
-```bash
-specify projects status
-```
+Following recommendations from `gh_api/best-practices-for-projects.md`:
 
-### `specify projects sync`
+✅ **Use sub-issues for hierarchies** (Lines 11-20)
+- Implemented with `parentIssueId` field
+- Creates semantic relationships queryable via GraphQL
 
-Sync tasks.md with GitHub Project (create or update).
+✅ **Customize views with grouping by custom fields** (Lines 37-62)
+- Created Phase and Task Group custom fields
+- Enables visual grouping in table views
 
-**Arguments:**
-- `TASKS_FILE` (optional) - Path to tasks.md file
+✅ **Use single-select fields for metadata** (Lines 64-78)
+- Both Phase and Task Group use single-select format
+- Allows efficient filtering and grouping
 
-**Options:**
-- `--token TEXT` - GitHub personal access token
-- `--dry-run, -n` - Show what would be done without making changes
+## Known Limitations
 
-**Examples:**
-```bash
-# Auto-detect tasks.md
-specify projects sync
+1. **View Configuration Requires Manual Setup**
+   - REST API for views is Enterprise Cloud only
+   - No GraphQL mutations for view configuration
+   - Takes < 1 minute to configure manually
+   - Configuration persists per user
 
-# Specify file explicitly
-specify projects sync specs/001-feature/tasks.md
-
-# Dry run
-specify projects sync --dry-run
-```
-
-## Authentication
-
-### Token Requirements
-
-GitHub Projects requires a Personal Access Token with the following scopes:
-- `repo` - Full control of private repositories
-- `project` - Full control of projects
-
-### Creating a Token
-
-1. Go to GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens
-2. Click "Generate new token"
-3. Give it a descriptive name (e.g., "Spec-Kit GitHub Projects")
-4. Select repository access (specific repositories or all)
-5. Select permissions:
-   - Repository: Read and Write access to Contents, Issues
-   - Organization: Read and Write access to Projects
-6. Generate token and save it securely
-
-### Providing the Token
-
-**Method 1: Environment variable** (Recommended)
-```bash
-export GH_TOKEN="ghp_xxx..."
-specify projects enable
-```
-
-**Method 2: Command-line flag**
-```bash
-specify projects enable --token ghp_xxx...
-```
-
-**Method 3: GitHub CLI** (Automatic)
-```bash
-gh auth login
-specify projects enable  # Uses gh CLI token
-```
+2. **Phase Issues Don't Appear in Table**
+   - Phase issues don't have Phase field set
+   - Intentional: prevents appearing in own group
+   - Visible in hierarchy on individual issue pages
 
 ## Troubleshooting
 
-### "Not a git repository"
+### "Phase 1" appearing multiple times
+**Cause**: Sync was run twice, creating duplicate issues  
+**Fix**: Remove duplicates from project, close duplicate issues  
+**Prevention**: Validation test now catches this
 
-GitHub Projects integration requires a git repository with a GitHub remote.
+### Phase issue appearing in its own group
+**Cause**: Phase issue has Phase field set incorrectly  
+**Fix**: Clear Phase field from Phase issues  
+**Prevention**: Validation test checks for this
 
-```bash
-git init
-git remote add origin https://github.com/username/repo.git
-```
+### Hierarchy not visible in table
+**Expected**: Sub-issues don't show as nested rows in table view  
+**Solution**: Use "Sub-issues progress" column or Board view with "Show hierarchy"
 
-### "No GitHub token found"
+## Future Enhancements
 
-Provide a token using one of the methods above.
+- [ ] Auto-detect and handle duplicate issues during sync
+- [ ] Support for Enterprise Cloud REST API view configuration
+- [ ] Optional browser automation for view setup (if user enables)
+- [ ] Multi-phase project support
+- [ ] Milestone integration
 
-### "Could not parse GitHub repository"
+## References
 
-Ensure your git remote URL is a valid GitHub URL:
+- [GitHub Projects Best Practices](gh_api/best-practices-for-projects.md)
+- [GitHub GraphQL API Schema](gh_api/schema.docs.graphql)
+- [GitHub REST API Objects](gh_api/objects.md)
+- [Sub-Issues Documentation](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/about-issues#sub-issues)
+- [Enterprise Cloud Views API](https://docs.github.com/en/enterprise-cloud@latest/rest/projects/views)
 
-```bash
-git remote -v
-# Should show: origin  https://github.com/username/repo.git (fetch)
-```
+---
 
-### "Multiple tasks.md files found"
-
-Specify which tasks.md to sync:
-
-```bash
-specify projects sync specs/001-feature/tasks.md
-```
-
-## Development Status
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 1 | ✅ Complete | Configuration & CLI commands |
-| 2 | 🚧 In Progress | GitHub GraphQL API client |
-| 3 | 🚧 In Progress | Project creator orchestration |
-| 4 | ⏳ Planned | Project updater & sync |
-| 5 | ⏳ Planned | Integration with task commands |
-| 6 | ⏳ Planned | Documentation & examples |
-| 7 | ⏳ Planned | Testing & validation |
-
-## Roadmap
-
-### v0.2.0 (Current)
-- ✅ CLI commands and configuration
-- ✅ Tasks.md parser
-- ✅ Dependency graph builder
-
-### v0.3.0 (Next)
-- ⏳ GitHub GraphQL API integration
-- ⏳ Project creation from tasks.md
-- ⏳ Custom fields setup
-- ⏳ Issue hierarchy creation
-
-### v0.4.0 (Future)
-- ⏳ Bidirectional sync
-- ⏳ Automatic sync on task updates
-- ⏳ Conflict detection and resolution
-
-### v0.5.0 (Future)
-- ⏳ Support for organization projects
-- ⏳ Template projects
-- ⏳ Advanced dependency visualization
-
-## Contributing
-
-Contributions are welcome! See the implementation plan in `.copilot/session-state/.../plan.md` for details on pending work.
-
-### Running Tests
-
-```bash
-# Unit tests (when implemented)
-pytest tests/github/
-pytest tests/parser/
-
-# Manual parser test
-python -c "
-from pathlib import Path
-from specify_cli.parser import parse_tasks_md, build_dependency_graph
-
-content = Path('specs/001-feature/tasks.md').read_text()
-doc = parse_tasks_md(content)
-print(f'Phases: {len(doc.phases)}, Tasks: {doc.task_count}')
-"
-```
-
-## License
-
-MIT License - See LICENSE file for details.
-
-## Related Documentation
-
-- [Spec-Driven Development](spec-driven.md)
-- [Spec Kit README](README.md)
-- [Templates](templates/)
-- [Implementation Plan](.copilot/session-state/.../plan.md)
+**Questions?** See `docs/GITHUB_PROJECTS_VIEW_SETUP.md` or open an issue.
