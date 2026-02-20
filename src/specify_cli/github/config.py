@@ -51,6 +51,10 @@ def load_config(repo_root: Path) -> GitHubProjectsConfig:
     if not config_path.exists():
         return GitHubProjectsConfig()
     
+    # Check if it's actually a file (not a directory)
+    if not config_path.is_file():
+        return GitHubProjectsConfig()
+    
     try:
         with open(config_path, "r") as f:
             data = json.load(f)
