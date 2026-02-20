@@ -1602,9 +1602,31 @@ def projects_sync(
     console.print(f"Syncing: {tasks_file.relative_to(project_root)}")
     console.print(f"Repository: {config.repo_owner}/{config.repo_name}\n")
     
-    # TODO: Implement actual sync logic
-    console.print("[yellow]Note:[/yellow] Sync functionality is not yet implemented")
-    console.print("This feature is coming soon!")
+    # Actual sync implementation
+    from .github.graphql_client import GraphQLClient
+    from .github.sync_engine import SyncEngine
+    
+    try:
+        # Create GraphQL client
+        with GraphQLClient(token) as client:
+            # Create sync engine
+            engine = SyncEngine(client)
+            
+            # Perform sync
+            updated_config = engine.sync_tasks_to_project(
+                tasks_file=tasks_file,
+                config=config,
+                project_root=project_root
+            )
+            
+            console.print(f"\n[bold green]✓ Sync completed successfully![/bold green]")
+            
+    except Exception as e:
+        console.print(f"\n[red]Error during sync:[/red] {str(e)}")
+        import traceback
+        if "--debug" in sys.argv:
+            traceback.print_exc()
+        raise typer.Exit(1)
 
 
 # ===== Extension Commands =====
