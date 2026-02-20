@@ -230,7 +230,7 @@ View Configuration:
 
 Next Steps:
   - View the project in your browser: $PROJECT_URL
-  - Test the grouping by switching to "Task Group" view
+  - Test different groupings (Phase, Status, Priority, etc.)
   - Archive test repository: gh repo archive $OWNER/$REPO_NAME
 
 Cleanup:
