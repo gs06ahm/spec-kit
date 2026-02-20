@@ -192,7 +192,7 @@ echo "==========================================================================
 echo ""
 
 echo "🔍 Verifying project structure..."
-python tests/integration/validate_project_structure.py \
+python validate_project_structure.py \
     --owner "$OWNER" \
     --repo "$REPO_NAME" \
     --project "$PROJECT_NUMBER"
