@@ -1588,6 +1588,10 @@ def projects_sync(
             console.print("[red]Error:[/red] No specs/ directory found")
             raise typer.Exit(1)
     
+    # Resolve to absolute path if relative
+    if not tasks_file.is_absolute():
+        tasks_file = project_root / tasks_file
+    
     if not tasks_file.exists():
         console.print(f"[red]Error:[/red] File not found: {tasks_file}")
         raise typer.Exit(1)

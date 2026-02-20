@@ -120,6 +120,9 @@ def parse_tasks_md(content: str) -> TasksDocument:
         
         # Parse phase heading
         if match := PHASE_PATTERN.match(line_stripped):
+            # Save current group to current phase before saving phase
+            if current_group and current_phase:
+                current_phase.groups.append(current_group)
             # Save previous phase
             if current_phase:
                 doc.phases.append(current_phase)
@@ -139,8 +142,8 @@ def parse_tasks_md(content: str) -> TasksDocument:
             current_group = None
             continue
         
-        # Parse story group heading (### headings within phases)
-        if line_stripped.startswith('###') and current_phase:
+        # Parse story group heading (### headings within phases, not ####)
+        if line_stripped.startswith('### ') and not line_stripped.startswith('#### ') and current_phase:
             if match := GROUP_PATTERN.match(line_stripped):
                 # Save previous group if exists
                 if current_group:
@@ -177,6 +180,10 @@ def parse_tasks_md(content: str) -> TasksDocument:
             is_parallel = match.group(3) is not None
             user_story_raw = match.group(4)
             description = match.group(5).strip()
+            
+            # Remove leading colon if present (e.g., "T001: description" -> "description")
+            if description.startswith(':'):
+                description = description[1:].strip()
             
             # Extract user story from [US1] format
             user_story = None
