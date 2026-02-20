@@ -9,6 +9,7 @@ from rich.console import Console
 from .graphql_client import GraphQLClient
 from .project_creator import ProjectCreator
 from .issue_manager import IssueManager
+from .hierarchy_builder import HierarchyBuilder
 from .config import GitHubProjectsConfig, save_config
 from .queries import GET_REPOSITORY_QUERY
 from ..parser import parse_tasks_md, build_dependency_graph
@@ -113,22 +114,36 @@ class SyncEngine:
         # Create labels
         console.print("\n[bold cyan]Step 6:[/bold cyan] Creating labels")
         issue_manager = IssueManager(self.client, repo_id)
-        issue_manager.create_labels(doc.phases, user_stories)
+        labels = issue_manager.create_labels(doc.phases, user_stories)
         
-        # Create task issues
-        console.print("\n[bold cyan]Step 7:[/bold cyan] Creating issues")
-        task_issue_map = issue_manager.create_task_issues(
+        # Create three-level hierarchy: Phase → Task Group → Tasks
+        console.print("\n[bold cyan]Step 7:[/bold cyan] Creating hierarchical issues")
+        hierarchy_builder = HierarchyBuilder(self.client)
+        hierarchy = hierarchy_builder.create_hierarchy(
+            doc=doc,
+            repo_id=repo_id,
+            project_id=project_id,
+            labels=labels
+        )
+        
+        # Extract task issues for field value setting and dependencies
+        task_issue_map = hierarchy["task_issues"]
+        
+        # Set custom field values on task issues
+        console.print("\n[bold cyan]Step 8:[/bold cyan] Setting custom field values")
+        issue_manager.set_field_values(
             doc=doc,
             project_id=project_id,
+            task_issue_map=task_issue_map,
             field_ids=field_ids
         )
         
         # Create dependencies
-        console.print("\n[bold cyan]Step 8:[/bold cyan] Setting up dependencies")
+        console.print("\n[bold cyan]Step 9:[/bold cyan] Setting up dependencies")
         issue_manager.create_dependencies(dep_graph, task_issue_map)
         
         # Update sync state
-        console.print("\n[bold cyan]Step 9:[/bold cyan] Updating sync state")
+        console.print("\n[bold cyan]Step 10:[/bold cyan] Updating sync state")
         content_hash = self._calculate_hash(content)
         config.last_synced_at = datetime.utcnow().isoformat() + "Z"
         config.last_synced_tasks_md_hash = content_hash
@@ -136,6 +151,7 @@ class SyncEngine:
         
         console.print(f"\n[bold green]✓ Sync complete![/bold green]")
         console.print(f"\n[cyan]Project URL:[/cyan] {project_url}")
+        console.print(f"[cyan]Hierarchy:[/cyan] {len(hierarchy['phase_issues'])} phases, {len(hierarchy['group_issues'])} groups, {len(task_issue_map)} tasks")
         
         return config
     

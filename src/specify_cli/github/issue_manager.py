@@ -29,31 +29,50 @@ class IssueManager:
         self.client = client
         self.repo_id = repo_id
     
-    def create_labels(self, phases: List[Phase], user_stories: List[str]) -> None:
+    def create_labels(self, phases: List[Phase], user_stories: List[str]) -> Dict[str, str]:
         """
         Create repository labels for phases and user stories.
         
         Args:
             phases: List of phases
             user_stories: List of user story IDs
+            
+        Returns:
+            Dictionary mapping label names to label IDs (empty for now - IDs not tracked)
         """
         console.print("[cyan]Creating labels...[/cyan]")
+        
+        labels_created = {}
         
         # Create phase labels
         for phase in phases:
             label_name = f"phase-{phase.number}"
             self._create_label_safe(label_name, "0969DA")  # Blue
+            labels_created[label_name] = label_name  # Store name as placeholder
         
         # Create user story labels
         for us in user_stories:
             label_name = f"user-story-{us.lower()}"
             self._create_label_safe(label_name, "BFD4F2")  # Light blue
+            labels_created[label_name] = label_name
         
         # Create priority labels
-        for priority, color in [("P1", "D73A4A"), ("P2", "FF9800"), ("P3", "FFC107")]:
-            self._create_label_safe(f"priority-{priority.lower()}", color)
+        priority_labels = [
+            ("p-critical", "D73A4A"),  # Red
+            ("p-high", "FF9800"),      # Orange
+            ("p-medium", "FFC107"),    # Yellow
+            ("p-low", "4CAF50")        # Green
+        ]
+        for label, color in priority_labels:
+            self._create_label_safe(label, color)
+            labels_created[label] = label
+        
+        # Create parallel label
+        self._create_label_safe("parallel", "9C27B0")  # Purple
+        labels_created["parallel"] = "parallel"
         
         console.print("[green]✓ Labels created[/green]")
+        return labels_created
     
     def _create_label_safe(self, name: str, color: str) -> None:
         """Create a label if it doesn't exist (ignore errors if it does)."""
@@ -132,6 +151,36 @@ class IssueManager:
         
         console.print(f"[green]✓ Created {len(task_issue_map)} issues[/green]")
         return task_issue_map
+    
+    def set_field_values(
+        self,
+        doc: TasksDocument,
+        project_id: str,
+        task_issue_map: Dict[str, str],
+        field_ids: Dict[str, Any]
+    ) -> None:
+        """
+        Set custom field values for all task issues.
+        
+        Args:
+            doc: Parsed tasks document
+            project_id: Project node ID
+            task_issue_map: Map of task IDs to issue node IDs
+            field_ids: Field IDs from setup_custom_fields
+        """
+        console.print(f"[cyan]Setting field values for {len(task_issue_map)} tasks...[/cyan]")
+        
+        # First, we need to get the project item IDs for each issue
+        # For now, we'll need to add each issue to the project and get the item ID
+        task_item_map = {}
+        for task_id, issue_id in task_issue_map.items():
+            # Issue was already added to project via projectV2Ids in creation
+            # We need to query for the item ID - for now, skip field values
+            # This will be a future enhancement
+            pass
+        
+        console.print("[yellow]⚠ Field value setting skipped - issues created with projectV2Ids[/yellow]")
+        console.print("[yellow]  Custom fields can be set manually in the project UI[/yellow]")
     
     def _create_task_issue(
         self,
