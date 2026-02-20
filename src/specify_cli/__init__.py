@@ -1624,8 +1624,7 @@ def projects_sync(
     except Exception as e:
         console.print(f"\n[red]Error during sync:[/red] {str(e)}")
         import traceback
-        if "--debug" in sys.argv:
-            traceback.print_exc()
+        traceback.print_exc()  # Always print traceback for debugging
         raise typer.Exit(1)
 
 

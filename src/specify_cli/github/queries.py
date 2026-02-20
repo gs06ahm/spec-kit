@@ -19,6 +19,7 @@ query GetRepository($owner: String!, $name: String!) {
     id
     name
     owner {
+      id
       login
     }
   }
@@ -34,6 +35,35 @@ query FindProject($owner: String!, $number: Int!) {
       title
       number
       url
+      fields(first: 50) {
+        nodes {
+          ... on ProjectV2Field {
+            id
+            name
+            dataType
+          }
+          ... on ProjectV2SingleSelectField {
+            id
+            name
+            dataType
+            options {
+              id
+              name
+              color
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+# Query to get project fields by project ID
+GET_PROJECT_FIELDS_QUERY = """
+query GetProjectFields($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
       fields(first: 50) {
         nodes {
           ... on ProjectV2Field {
