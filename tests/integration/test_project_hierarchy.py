@@ -5,6 +5,18 @@ Uses Playwright to verify the project web interface.
 import os
 import subprocess
 import time
+
+if __name__ != "__main__":
+    import pytest
+    if not os.getenv("RUN_MANUAL_PLAYWRIGHT_TESTS"):
+        pytest.skip(
+            "Manual Playwright test. Set RUN_MANUAL_PLAYWRIGHT_TESTS=1 to run.",
+            allow_module_level=True,
+        )
+    pytest.importorskip("playwright.sync_api")
+    if not os.getenv("TEST_PROJECT_URL"):
+        pytest.skip("Set TEST_PROJECT_URL to a newly created project URL.", allow_module_level=True)
+
 from playwright.sync_api import sync_playwright, expect
 
 def get_gh_auth_token():
@@ -22,7 +34,7 @@ def test_project_hierarchy():
     """Test that the GitHub Project hierarchy is displayed correctly."""
     
     # Get the project URL from the test repository
-    project_url = "https://github.com/users/gs06ahm/projects/12"
+    project_url = os.getenv("TEST_PROJECT_URL", "https://github.com/users/gs06ahm/projects/12")
     
     print(f"\n🧪 Testing GitHub Project: {project_url}\n")
     

@@ -10,19 +10,25 @@ import re
 from pathlib import Path
 import pytest
 
+pytest.importorskip("playwright.sync_api")
+
 
 # Skip all tests if GH_TOKEN is not available
 pytestmark = pytest.mark.skipif(
-    not os.getenv("GH_TOKEN") and not os.getenv("GITHUB_TOKEN"),
-    reason="GitHub token required for integration tests"
+    (
+        (not os.getenv("GH_TOKEN") and not os.getenv("GITHUB_TOKEN"))
+        or not os.getenv("RUN_PLAYWRIGHT_UI_TESTS")
+    ),
+    reason="GitHub token and RUN_PLAYWRIGHT_UI_TESTS=1 are required for integration tests"
 )
 
 
 @pytest.fixture(scope="module")
 def project_url():
     """Get the project URL from environment or config."""
-    # Could be passed via environment variable or read from config
-    url = os.getenv("TEST_PROJECT_URL", "https://github.com/users/gs06ahm/projects/11")
+    url = os.getenv("TEST_PROJECT_URL")
+    if not url:
+        pytest.skip("TEST_PROJECT_URL must point to a newly created test project")
     return url
 
 

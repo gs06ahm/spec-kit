@@ -14,7 +14,7 @@ class Task:
     is_parallel: bool
     user_story: Optional[str]  # e.g., "US1"
     file_paths: list[str]
-    phase_number: int
+    phase_number: str
     group_title: Optional[str] = None
     raw_line: str = ""  # Original line for reference
 
@@ -32,7 +32,7 @@ class StoryGroup:
 class Phase:
     """Represents a phase (## heading) in tasks.md."""
     
-    number: int
+    number: str
     title: str
     purpose: Optional[str] = None
     goal: Optional[str] = None

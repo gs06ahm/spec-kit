@@ -11,9 +11,21 @@ This test will:
 import os
 import sys
 import time
+
+if __name__ != "__main__":
+    import pytest
+    if not os.getenv("RUN_MANUAL_PLAYWRIGHT_TESTS"):
+        pytest.skip(
+            "Manual Playwright test. Set RUN_MANUAL_PLAYWRIGHT_TESTS=1 to run.",
+            allow_module_level=True,
+        )
+    pytest.importorskip("playwright.sync_api")
+    if not os.getenv("TEST_PROJECT_URL"):
+        pytest.skip("Set TEST_PROJECT_URL to a newly created project URL.", allow_module_level=True)
+
 from playwright.sync_api import sync_playwright, expect
 
-PROJECT_URL = "https://github.com/users/gs06ahm/projects/12"
+PROJECT_URL = os.getenv("TEST_PROJECT_URL", "https://github.com/users/gs06ahm/projects/12")
 
 def test_project_hierarchy_display():
     """Test that project displays hierarchy with grouping."""

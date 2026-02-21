@@ -11,7 +11,7 @@ from .models import Task, StoryGroup, Phase, TasksDocument
 TITLE_PATTERN = re.compile(r'^# Tasks: (.+)$')
 METADATA_INPUT_PATTERN = re.compile(r'^\*\*Input\*\*: (.+)$')
 METADATA_BRANCH_PATTERN = re.compile(r'^\*\*Branch\*\*: `?(.+?)`?$')
-PHASE_PATTERN = re.compile(r'^## Phase (\d+): (.+)$')
+PHASE_PATTERN = re.compile(r'^## Phase (\d+(?:\.\d+)*): (.+)$')
 GROUP_PATTERN = re.compile(r'^### (.+?)(?:\s*\((US\d+)\))?$')
 TASK_PATTERN = re.compile(
     r'^- \[([ Xx])\] (T\d{3,4})\s*(\[P\])?\s*(\[US\d+\])?\s*(.+)$'
@@ -37,7 +37,7 @@ def extract_file_paths(text: str) -> list[str]:
     return FILE_PATH_PATTERN.findall(text)
 
 
-def parse_phase_heading(heading: str, phase_number: int) -> tuple[str, Optional[str], Optional[str], bool]:
+def parse_phase_heading(heading: str, phase_number: str) -> tuple[str, Optional[str], Optional[str], bool]:
     """
     Parse phase heading to extract:
     - Title (cleaned)
@@ -72,7 +72,7 @@ def parse_phase_heading(heading: str, phase_number: int) -> tuple[str, Optional[
     title = title.strip()
     
     # Remove "Phase N: " prefix if present
-    title = re.sub(r'^Phase \d+:\s*', '', title)
+    title = re.sub(r'^Phase \d+(?:\.\d+)*:\s*', '', title)
     
     return title, priority, user_story, is_mvp
 
@@ -95,7 +95,7 @@ def parse_tasks_md(content: str) -> TasksDocument:
     # State tracking
     current_phase: Optional[Phase] = None
     current_group: Optional[StoryGroup] = None
-    phase_number = 0
+    phase_number = ""
     
     for line in lines:
         line_stripped = line.strip()
@@ -127,7 +127,7 @@ def parse_tasks_md(content: str) -> TasksDocument:
             if current_phase:
                 doc.phases.append(current_phase)
             
-            phase_number = int(match.group(1))
+            phase_number = match.group(1)
             phase_heading = match.group(2)
             
             title, priority, user_story, is_mvp = parse_phase_heading(phase_heading, phase_number)

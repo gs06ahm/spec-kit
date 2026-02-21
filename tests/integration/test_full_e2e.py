@@ -20,6 +20,14 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
+# This file is a manual integration script; keep it out of pytest collection.
+if "pytest" in sys.modules:
+    import pytest
+    pytest.skip(
+        "Manual integration script; use tests/integration/test_full_e2e.sh",
+        allow_module_level=True,
+    )
+
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 

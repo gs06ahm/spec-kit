@@ -117,6 +117,22 @@ mutation CreateLabel($input: CreateLabelInput!) {
 }
 """
 
+# Add issue dependency (blocked by)
+ADD_BLOCKED_BY_MUTATION = """
+mutation AddBlockedBy($input: AddBlockedByInput!) {
+  addBlockedBy(input: $input) {
+    issue {
+      id
+      number
+    }
+    blockingIssue {
+      id
+      number
+    }
+  }
+}
+"""
+
 
 def create_project(
     owner_id: str,

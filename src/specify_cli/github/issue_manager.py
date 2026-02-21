@@ -3,12 +3,13 @@
 from typing import Dict, List, Any, Optional
 from rich.console import Console
 
-from .graphql_client import GraphQLClient
+from .graphql_client import GraphQLClient, GitHubGraphQLError
 from .mutations import (
     CREATE_ISSUE_MUTATION,
     ADD_PROJECT_ITEM_MUTATION,
     UPDATE_FIELD_VALUE_MUTATION,
     CREATE_LABEL_MUTATION,
+    ADD_BLOCKED_BY_MUTATION,
 )
 from ..parser.models import Task, Phase, StoryGroup, TasksDocument, DependencyGraph
 
@@ -155,10 +156,14 @@ class IssueManager:
     def _get_project_item_id(self, project_id: str, issue_number: int) -> Optional[str]:
         """Get the project item ID for an issue that's already in the project."""
         query = '''
-        query GetProjectItemId($projectId: ID!) {
+        query GetProjectItemId($projectId: ID!, $cursor: String) {
           node(id: $projectId) {
             ... on ProjectV2 {
-              items(first: 100) {
+              items(first: 100, after: $cursor) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
                 nodes {
                   id
                   content {
@@ -172,18 +177,23 @@ class IssueManager:
           }
         }
         '''
-        
-        variables = {
-            "projectId": project_id
-        }
-        
-        result = self.client.execute(query, variables)
-        items = result["node"]["items"]["nodes"]
-        
-        for item in items:
-            if item.get("content") and item["content"].get("number") == issue_number:
-                return item["id"]
-        
+
+        cursor = None
+        while True:
+            variables = {"projectId": project_id, "cursor": cursor}
+            result = self.client.execute(query, variables)
+            items_data = result["node"]["items"]
+            items = items_data["nodes"]
+
+            for item in items:
+                if item.get("content") and item["content"].get("number") == issue_number:
+                    return item["id"]
+
+            page_info = items_data.get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+
         return None
 
     def set_field_values_all(
@@ -257,7 +267,7 @@ class IssueManager:
             parts = group_key.split(":", 1)
             if len(parts) != 2:
                 continue
-            phase_number = int(parts[0])
+            phase_number = parts[0]
             group_title = parts[1]
             
             # Get the project item ID
@@ -482,20 +492,53 @@ class IssueManager:
     def create_dependencies(
         self,
         dep_graph: DependencyGraph,
-        task_issue_map: Dict[str, str]
+        task_issue_map: Dict[str, Dict[str, Any]]
     ) -> None:
         """
         Create issue dependencies based on dependency graph.
         
         Args:
             dep_graph: Dependency graph
-            task_issue_map: Mapping from task IDs to issue node IDs
+            task_issue_map: Mapping from task IDs to issue dictionaries
         """
-        console.print(f"[cyan]Creating {len(dep_graph.dependencies)} dependencies...[/cyan]")
-        
-        # Note: GitHub doesn't have a GraphQL API for issue dependencies yet
-        # We would need to use the REST API for this
-        # For now, we'll document this in the issue descriptions
-        
-        console.print("[yellow]⚠ Issue dependency linking via REST API not yet implemented[/yellow]")
-        console.print("[yellow]  Dependencies are documented in issue descriptions[/yellow]")
+        total_links = sum(len(blockers) for blockers in dep_graph.dependencies.values())
+        console.print(f"[cyan]Creating {total_links} dependencies...[/cyan]")
+
+        created_links = 0
+        skipped_links = 0
+
+        for task_id, blockers in dep_graph.dependencies.items():
+            dependent_issue = task_issue_map.get(task_id)
+            if not dependent_issue:
+                skipped_links += len(blockers)
+                continue
+
+            dependent_issue_id = dependent_issue["id"]
+
+            for blocker_task_id in blockers:
+                blocker_issue = task_issue_map.get(blocker_task_id)
+                if not blocker_issue:
+                    skipped_links += 1
+                    continue
+
+                variables = {
+                    "input": {
+                        "issueId": dependent_issue_id,
+                        "blockingIssueId": blocker_issue["id"],
+                    }
+                }
+
+                try:
+                    self.client.execute(ADD_BLOCKED_BY_MUTATION, variables)
+                    created_links += 1
+                except GitHubGraphQLError as exc:
+                    message = str(exc).lower()
+                    if "already" in message and "block" in message:
+                        skipped_links += 1
+                        continue
+                    raise
+
+        console.print(
+            f"[green]✓ Dependencies linked:[/green] {created_links} created"
+            + (f", {skipped_links} skipped" if skipped_links else "")
+        )

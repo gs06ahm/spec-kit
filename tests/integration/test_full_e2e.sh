@@ -142,7 +142,8 @@ cp /home/adam/src/spec-kit/tests/integration/validate_project_structure.py .
 python validate_project_structure.py \
     --owner "$OWNER" \
     --repo "$REPO_NAME" \
-    --project "$PROJECT_NUMBER"
+    --project "$PROJECT_NUMBER" \
+    --tasks-file spec/tasks.md
 
 VALIDATION_RESULT=$?
 if [ $VALIDATION_RESULT -ne 0 ]; then
@@ -195,7 +196,8 @@ echo "🔍 Verifying project structure..."
 python validate_project_structure.py \
     --owner "$OWNER" \
     --repo "$REPO_NAME" \
-    --project "$PROJECT_NUMBER"
+    --project "$PROJECT_NUMBER" \
+    --tasks-file spec/tasks.md
 
 VALIDATION_RESULT=$?
 if [ $VALIDATION_RESULT -ne 0 ]; then
@@ -238,4 +240,3 @@ Cleanup:
   - Repository clone: $TEST_DIR-repo
 
 SUMMARY
-

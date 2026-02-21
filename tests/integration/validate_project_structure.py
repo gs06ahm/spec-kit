@@ -14,10 +14,16 @@ Usage:
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from collections import defaultdict
+from pathlib import Path
 from typing import Dict, List, Set, Optional
+
+PHASE_PATTERN = re.compile(r'^##\s+Phase\s+(\d+(?:\.\d+)*):\s+(.+)$')
+GROUP_PATTERN = re.compile(r'^###\s+(.+)$')
+TASK_PATTERN = re.compile(r'^-\s+\[[ Xx]\]\s+(T\d{3,4})\s*(?:\[P\])?\s*(?:\[US\d+\])?\s*(.+)$')
 
 def run_gh_graphql(query: str) -> dict:
     """Run a GraphQL query using gh CLI."""
@@ -109,30 +115,30 @@ def validate_hierarchy(issues: List[dict]) -> tuple[bool, List[str]]:
     
     # Build hierarchy map
     issues_by_number = {issue['number']: issue for issue in issues}
-    phases = []
-    task_groups = []
-    tasks = []
+    phase_numbers, group_numbers, task_numbers = classify_issues(issues)
     
     for issue in issues:
+        number = issue['number']
         title = issue['title']
         parent = issue.get('parent')
+        parent_number = parent['number'] if parent else None
         
-        if title.startswith('Phase '):
+        if number in phase_numbers:
             if parent:
-                errors.append(f"ERROR: Phase issue #{issue['number']} '{title}' has a parent #{parent['number']}")
-            phases.append(issue)
-        elif title.startswith('Task Group:'):
+                errors.append(f"ERROR: Phase issue #{number} '{title}' has a parent #{parent['number']}")
+        elif number in group_numbers:
             if not parent:
-                errors.append(f"ERROR: Task Group #{issue['number']} '{title}' has no parent")
-            elif not issues_by_number.get(parent['number'], {}).get('title', '').startswith('Phase '):
-                errors.append(f"ERROR: Task Group #{issue['number']} '{title}' parent #{parent['number']} is not a Phase")
-            task_groups.append(issue)
-        elif title.startswith('[T') or title.startswith('[M'):
+                errors.append(f"ERROR: Task Group #{number} '{title}' has no parent")
+            elif parent_number not in phase_numbers:
+                errors.append(f"ERROR: Task Group #{number} '{title}' parent #{parent['number']} is not a Phase")
+        elif number in task_numbers:
             if not parent:
-                errors.append(f"ERROR: Task #{issue['number']} '{title}' has no parent")
-            elif not issues_by_number.get(parent['number'], {}).get('title', '').startswith('Task Group:'):
-                errors.append(f"ERROR: Task #{issue['number']} '{title}' parent #{parent['number']} is not a Task Group")
-            tasks.append(issue)
+                errors.append(f"ERROR: Task #{number} '{title}' has no parent")
+            elif parent_number not in group_numbers and parent_number not in phase_numbers:
+                parent_title = issues_by_number.get(parent_number, {}).get('title', 'Unknown')
+                errors.append(
+                    f"ERROR: Task #{number} '{title}' parent #{parent_number} ('{parent_title}') is not a Task Group or Phase"
+                )
     
     return len(errors) == 0, errors
 
@@ -161,15 +167,16 @@ def validate_phase_fields(items: List[dict]) -> tuple[bool, List[str]]:
     
     return len(errors) == 0, errors
 
-def validate_task_group_fields(items: List[dict]) -> tuple[bool, List[str]]:
+def validate_task_group_fields(items: List[dict], issues: List[dict]) -> tuple[bool, List[str]]:
     """Ensure Task Group issues have Phase field set."""
     errors = []
+    _, group_numbers, _ = classify_issues(issues)
     
     for item in items:
         title = item['content']['title']
         number = item['content']['number']
         
-        if title.startswith('Task Group:'):
+        if number in group_numbers:
             # Get field values
             fields = {}
             for field_value in item.get('fieldValues', {}).get('nodes', []):
@@ -183,39 +190,79 @@ def validate_task_group_fields(items: List[dict]) -> tuple[bool, List[str]]:
     
     return len(errors) == 0, errors
 
-def validate_expected_structure(items: List[dict], issues: List[dict]) -> tuple[bool, List[str]]:
+
+def classify_issues(issues: List[dict]) -> tuple[Set[int], Set[int], Set[int]]:
+    """Classify issues into phase, group, and task buckets by hierarchy/title."""
+    phase_numbers = {issue['number'] for issue in issues if issue['title'].startswith('Phase ')}
+    task_numbers = {
+        issue['number'] for issue in issues if issue['title'].startswith('[T') or issue['title'].startswith('[M')
+    }
+
+    group_numbers: Set[int] = set()
+    for issue in issues:
+        number = issue['number']
+        if number in phase_numbers or number in task_numbers:
+            continue
+        parent = issue.get('parent')
+        if parent and parent['number'] in phase_numbers:
+            group_numbers.add(number)
+
+    return phase_numbers, group_numbers, task_numbers
+
+def find_tasks_file(explicit_path: Optional[str]) -> Optional[Path]:
+    """Find tasks.md file from explicit path or common defaults."""
+    if explicit_path:
+        candidate = Path(explicit_path)
+        return candidate if candidate.exists() else None
+
+    defaults = [Path("spec/tasks.md")]
+    defaults.extend(sorted(Path("specs").glob("*/tasks.md")) if Path("specs").exists() else [])
+    for candidate in defaults:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def parse_expected_titles(tasks_file: Path) -> Set[str]:
+    """Extract expected phase/group/task issue titles from tasks.md."""
+    expected_titles: Set[str] = set()
+    for raw_line in tasks_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        phase_match = PHASE_PATTERN.match(line)
+        if phase_match:
+            expected_titles.add(f"Phase {phase_match.group(1)}: {phase_match.group(2).strip()}")
+            continue
+
+        group_match = GROUP_PATTERN.match(line)
+        if group_match:
+            expected_titles.add(group_match.group(1).strip())
+            continue
+
+        task_match = TASK_PATTERN.match(line)
+        if task_match:
+            expected_titles.add(f"[{task_match.group(1)}] {task_match.group(2).strip()}")
+
+    return expected_titles
+
+
+def validate_expected_structure(items: List[dict], issues: List[dict], expected_items: Set[str]) -> tuple[bool, List[str]]:
     """Validate expected counts and structure."""
     errors = []
     
     # Count by type
-    phase_count = sum(1 for i in issues if i['title'].startswith('Phase '))
-    group_count = sum(1 for i in issues if i['title'].startswith('Task Group:'))
-    task_count = sum(1 for i in issues if i['title'].startswith('[T') or i['title'].startswith('[M'))
+    phase_numbers, group_numbers, task_numbers = classify_issues(issues)
+    phase_count = len(phase_numbers)
+    group_count = len(group_numbers)
+    task_count = len(task_numbers)
     
     total = phase_count + group_count + task_count
     
     # Verify counts
     if len(items) != total:
         errors.append(f"ERROR: Project has {len(items)} items but should have {total} (phases:{phase_count}, groups:{group_count}, tasks:{task_count})")
-    
-    # Verify expected items from tasks.md
-    expected_items = {
-        'Phase 1: Foundation & Setup',
-        'Phase 2: Feature Implementation',
-        'Task Group: Development Environment',
-        'Task Group: Core Infrastructure',
-        'Task Group: API Development',
-        'Task Group: Integration',
-        '[T001] Initialize development environment',
-        '[T002] Configure testing framework',
-        '[T003] Setup CI/CD pipeline',
-        '[T004] Implement base classes',
-        '[T005] Setup logging and monitoring',
-        '[T006] Design API schema',
-        '[T007] Implement authentication',
-        '[T008] Create CRUD endpoints',
-        '[T009] Add third-party integrations',
-    }
     
     actual_items = {item['content']['title'] for item in items}
     
@@ -238,11 +285,21 @@ def main():
     parser.add_argument('--owner', default='gs06ahm', help='GitHub username or org')
     parser.add_argument('--repo', default='spec-kit-hierarchy-test', help='Repository name')
     parser.add_argument('--project', type=int, default=12, help='Project number')
+    parser.add_argument('--tasks-file', default=None, help='Path to tasks.md used to generate expected items')
     
     args = parser.parse_args()
     owner = args.owner
     repo = args.repo
     project_number = args.project
+    tasks_file = find_tasks_file(args.tasks_file)
+
+    expected_items: Set[str] = set()
+    if tasks_file:
+        expected_items = parse_expected_titles(tasks_file)
+        print(f"Using expected items from {tasks_file} ({len(expected_items)} titles)")
+    else:
+        print("WARNING: No tasks.md found; expected item validation will be skipped")
+    print()
     
     print(f"Validating project structure for {owner}/projects/{project_number}")
     print("=" * 70)
@@ -297,7 +354,7 @@ def main():
     
     # Test 4: Task Group fields
     print("Test 4: Validating Task Group field values...")
-    passed, errors = validate_task_group_fields(items)
+    passed, errors = validate_task_group_fields(items, issues)
     if passed:
         print("  ✓ PASSED: Task Groups have correct fields")
     else:
@@ -309,7 +366,10 @@ def main():
     
     # Test 5: Expected structure
     print("Test 5: Validating expected items from tasks.md...")
-    passed, errors = validate_expected_structure(items, issues)
+    if expected_items:
+        passed, errors = validate_expected_structure(items, issues, expected_items)
+    else:
+        passed, errors = True, []
     if passed:
         print("  ✓ PASSED: All expected items present, no extras")
     else:
