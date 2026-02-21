@@ -29,7 +29,8 @@ USER_STORY_PATTERN = re.compile(r'(?:User Story\s+(\d+)|(US\d+))')
 MVP_MARKER = '🎯'
 
 # File path pattern - matches things like "src/file.py" or "tests/test_file.py"
-FILE_PATH_PATTERN = re.compile(r'\b[\w-]+(?:/[\w/.-]+)+\.\w+')
+# Each path segment uses [\w.-]+ (no slash) to avoid nested-quantifier ReDoS.
+FILE_PATH_PATTERN = re.compile(r'\b[\w-]+(?:/[\w.-]+)+')
 
 
 def extract_file_paths(text: str) -> list[str]:
