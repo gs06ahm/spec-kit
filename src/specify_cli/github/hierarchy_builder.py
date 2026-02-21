@@ -4,7 +4,7 @@ from typing import Dict, List, Any
 from rich.console import Console
 
 from .graphql_client import GraphQLClient
-from .mutations import CREATE_ISSUE_MUTATION, ADD_PROJECT_ITEM_MUTATION
+from .mutations import CREATE_ISSUE_MUTATION, ADD_PROJECT_ITEM_MUTATION, UPDATE_ISSUE_MUTATION
 from ..parser.models import TasksDocument
 
 console = Console()
@@ -28,6 +28,7 @@ class HierarchyBuilder:
             client: GraphQL client instance
         """
         self.client = client
+        self._existing_issues_by_title: Dict[str, List[Dict[str, Any]]] = {}
     
     def create_hierarchy(
         self,
@@ -56,6 +57,7 @@ class HierarchyBuilder:
         phase_issues = {}
         group_issues = {}
         task_issues = {}
+        self._existing_issues_by_title = self._load_existing_issues(repo_id)
         
         # Create Phase issues (top level)
         for phase in doc.phases:
@@ -140,6 +142,28 @@ class HierarchyBuilder:
                     
                     task_issues[task.id] = task_issue
                     console.print(f"          ✓ Issue #{task_issue['number']} created")
+
+            # Create direct phase tasks (children of phase, no task group)
+            for task in phase.direct_tasks:
+                console.print(f"    📝 Creating Direct Task {task.id}: {task.description[:40]}...")
+
+                task_body = f"**Task ID**: {task.id}\n\n**Description**: {task.description}"
+                if task.is_parallel:
+                    task_body += "\n\n**Parallel**: Yes - Can be executed in parallel with other parallel tasks"
+                if task.file_paths:
+                    task_body += f"\n\n**Files**:\n" + "\n".join(f"- `{fp}`" for fp in task.file_paths)
+
+                task_issue = self._create_issue(
+                    repo_id=repo_id,
+                    title=f"[{task.id}] {task.description}",
+                    body=task_body,
+                    parent_issue_id=phase_issue["id"],
+                    label_ids=[],
+                    project_ids=[project_id]
+                )
+
+                task_issues[task.id] = task_issue
+                console.print(f"      ✓ Issue #{task_issue['number']} created")
         
         console.print(f"\n[green]✓ Hierarchy created:[/green] {len(phase_issues)} phases, {len(group_issues)} groups, {len(task_issues)} tasks")
         
@@ -172,6 +196,23 @@ class HierarchyBuilder:
         Returns:
             Issue data with id, number, url
         """
+        existing_issue = self._find_existing_issue(title=title, parent_issue_id=parent_issue_id)
+        if existing_issue:
+            if body is not None and body != existing_issue.get("body", ""):
+                self.client.execute(
+                    UPDATE_ISSUE_MUTATION,
+                    {"input": {"id": existing_issue["id"], "body": body}}
+                )
+                existing_issue["body"] = body
+
+            for project_id in project_ids or []:
+                self.client.execute(
+                    ADD_PROJECT_ITEM_MUTATION,
+                    {"input": {"projectId": project_id, "contentId": existing_issue["id"]}}
+                )
+
+            return existing_issue
+
         variables = {
             "input": {
                 "repositoryId": repo_id,
@@ -190,4 +231,65 @@ class HierarchyBuilder:
             variables["input"]["projectV2Ids"] = project_ids
         
         result = self.client.execute(CREATE_ISSUE_MUTATION, variables)
-        return result["createIssue"]["issue"]
+        issue = result["createIssue"]["issue"]
+        cached_issue = {
+            "id": issue["id"],
+            "number": issue["number"],
+            "title": issue["title"],
+            "url": issue["url"],
+            "body": body,
+            "parent": {"id": parent_issue_id} if parent_issue_id else None,
+        }
+        self._existing_issues_by_title.setdefault(title, []).append(cached_issue)
+        return cached_issue
+
+    def _find_existing_issue(self, title: str, parent_issue_id: str = None) -> Dict[str, Any] | None:
+        """Find an existing issue by title and parent ID."""
+        candidates = self._existing_issues_by_title.get(title, [])
+        for issue in candidates:
+            issue_parent_id = issue.get("parent", {}).get("id") if issue.get("parent") else None
+            if issue_parent_id == parent_issue_id:
+                return issue
+        return None
+
+    def _load_existing_issues(self, repo_id: str) -> Dict[str, List[Dict[str, Any]]]:
+        """Load all existing issues for a repository keyed by title."""
+        query = """
+        query GetRepositoryIssues($repoId: ID!, $cursor: String) {
+          node(id: $repoId) {
+            ... on Repository {
+              issues(first: 100, after: $cursor, states: [OPEN, CLOSED]) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                nodes {
+                  id
+                  number
+                  title
+                  url
+                  body
+                  parent {
+                    id
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+        issues_by_title: Dict[str, List[Dict[str, Any]]] = {}
+        cursor = None
+
+        while True:
+            result = self.client.execute(query, {"repoId": repo_id, "cursor": cursor})
+            issues_data = result.get("node", {}).get("issues", {})
+            for issue in issues_data.get("nodes", []):
+                issues_by_title.setdefault(issue["title"], []).append(issue)
+
+            page_info = issues_data.get("pageInfo", {})
+            if not page_info.get("hasNextPage"):
+                break
+            cursor = page_info.get("endCursor")
+
+        return issues_by_title
