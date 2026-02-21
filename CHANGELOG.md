@@ -7,6 +7,38 @@ All notable changes to the Specify CLI and templates are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-02-21
+
+### Added
+
+- **GitHub Projects Integration**: Sync `tasks.md` specs to GitHub Projects v2
+  - New `specify projects` command group:
+    - `specify projects enable [--force]` – Configure repository integration (replaces interactive `input()` prompt with `--force` flag)
+    - `specify projects disable` – Remove integration
+    - `specify projects status` – Show current configuration
+    - `specify projects sync [--dry-run]` – Sync tasks.md to a GitHub Project
+  - Parser module (`src/specify_cli/parser/`) for tasks.md files
+  - GitHub module (`src/specify_cli/github/`) with GraphQL client, mutations, and queries
+  - Three-level issue hierarchy: Phase → Task Group → Task using sub-issues
+  - Custom project fields: Task ID, Phase, User Story, Priority, Parallel
+  - Dependency linking via `addBlockedBy` mutations
+  - Idempotent syncing: existing issues are reused, project items are not duplicated
+
+### Changed
+
+- **`--dry-run` truly prevents writes**: `specify projects sync --dry-run` now parses `tasks.md`, builds the full plan, and prints a summary table without making any GraphQL mutations or config writes
+- **`projects enable` uses `--force` flag** instead of an interactive `input()` prompt for non-interactive / CI usage
+- **GitHub Projects CLI commands moved** to `src/specify_cli/github/cli.py` (wired into main app)
+- **`owner_id` correctly resolved** in `SyncEngine` (always uses `repository.owner.id`, never falls back to the repository node ID)
+- **Project item lookup map**: `IssueManager.build_project_item_map()` fetches all project items in a single paginated pass instead of re-scanning for each issue
+- **No duplicate project items**: `HierarchyBuilder` pre-loads existing project items and skips `addProjectV2ItemById` when an issue is already in the project
+
+### Removed
+
+- Unused `IssueManager.create_task_issues()` method
+- Unused `GitHubProjectsAPI` high-level wrapper (`api.py`) – engine components use `GraphQLClient` directly
+- Unused label creation step from sync flow (labels were created but never applied to issues)
+
 ## [0.1.0] - 2026-01-28
 
 ### Added

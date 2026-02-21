@@ -1406,6 +1406,12 @@ def version():
     console.print()
 
 
+# ===== GitHub Projects Commands =====
+
+from .github.cli import projects_app  # noqa: E402
+app.add_typer(projects_app, name="projects")
+
+
 # ===== Extension Commands =====
 
 extension_app = typer.Typer(

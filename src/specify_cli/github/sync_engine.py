@@ -1,0 +1,242 @@
+"""Sync engine for coordinating GitHub Projects synchronization."""
+
+import hashlib
+from datetime import datetime
+from typing import Dict, Any, Optional
+from pathlib import Path
+from rich.console import Console
+from rich.table import Table
+
+from .graphql_client import GraphQLClient
+from .project_creator import ProjectCreator
+from .issue_manager import IssueManager
+from .hierarchy_builder import HierarchyBuilder
+from .config import GitHubProjectsConfig, save_config
+from .queries import GET_REPOSITORY_QUERY
+from ..parser import parse_tasks_md, build_dependency_graph
+from ..parser.models import TasksDocument
+
+console = Console()
+
+
+class SyncEngine:
+    """Orchestrates synchronization between tasks.md and GitHub Projects."""
+    
+    def __init__(self, client: GraphQLClient):
+        """
+        Initialize SyncEngine.
+        
+        Args:
+            client: GraphQL client instance
+        """
+        self.client = client
+    
+    def sync_tasks_to_project(
+        self,
+        tasks_file: Path,
+        config: GitHubProjectsConfig,
+        project_root: Path,
+        dry_run: bool = False,
+    ) -> GitHubProjectsConfig:
+        """
+        Sync tasks.md to GitHub Project.
+        
+        Args:
+            tasks_file: Path to tasks.md file
+            config: Current configuration
+            project_root: Project root directory
+            dry_run: If True, parse and plan but make no write operations
+            
+        Returns:
+            Updated configuration (unchanged when dry_run=True)
+        """
+        # Parse tasks.md
+        console.print(f"\n[bold cyan]Step 1:[/bold cyan] Parsing {tasks_file.name}")
+        content = tasks_file.read_text()
+        doc = parse_tasks_md(content)
+        
+        console.print(f"  Found: {doc.task_count} tasks across {len(doc.phases)} phases")
+        
+        # Build dependency graph
+        console.print("\n[bold cyan]Step 2:[/bold cyan] Building dependency graph")
+        dep_graph = build_dependency_graph(doc)
+        console.print(f"  Found: {len(dep_graph.dependencies)} dependencies")
+
+        if dry_run:
+            self._print_dry_run_plan(doc, dep_graph, config)
+            return config
+
+        # Get repository info
+        console.print("\n[bold cyan]Step 3:[/bold cyan] Getting repository information")
+        repo_info = self._get_repository_info(config.repo_owner, config.repo_name)
+        repo_id = repo_info["id"]
+        # Always use the owner node ID, not the repository node ID
+        owner_id = repo_info["owner"]["id"]
+        console.print(f"  Repository: {config.repo_owner}/{config.repo_name}")
+        
+        # Create or get project
+        console.print("\n[bold cyan]Step 4:[/bold cyan] Creating GitHub Project")
+        creator = ProjectCreator(self.client)
+        
+        if config.project_id:
+            console.print(f"  [yellow]Project already exists:[/yellow] {config.project_url}")
+            project_id = config.project_id
+            project_number = config.project_number
+            project_url = config.project_url
+        else:
+            project = creator.create_project(
+                owner_id=owner_id,
+                title=f"Spec-Kit: {doc.title}",
+                description=f"Auto-generated from {tasks_file.name}"
+            )
+            project_id = project["id"]
+            project_number = project["number"]
+            project_url = project["url"]
+            
+            # Update config immediately
+            config.project_id = project_id
+            config.project_number = project_number
+            config.project_url = project_url
+            save_config(project_root, config)
+        
+        # Setup custom fields
+        console.print("\n[bold cyan]Step 5:[/bold cyan] Setting up custom fields")
+        
+        # Extract unique phases and user stories
+        phase_names = [f"Phase {p.number}: {p.title}" for p in doc.phases]
+        user_stories = list(set(
+            [g.user_story for p in doc.phases for g in p.groups if g.user_story] +
+            [t.user_story for t in doc.all_tasks if t.user_story]
+        ))
+        
+        field_ids = creator.setup_custom_fields(
+            project_id=project_id,
+            phases=phase_names,
+            user_stories=user_stories
+        )
+        
+        # Store field IDs in config
+        config.field_ids = field_ids
+        save_config(project_root, config)
+        
+        # Create three-level hierarchy: Phase → Task Group → Tasks
+        console.print("\n[bold cyan]Step 6:[/bold cyan] Creating hierarchical issues")
+        hierarchy_builder = HierarchyBuilder(self.client)
+        hierarchy = hierarchy_builder.create_hierarchy(
+            doc=doc,
+            repo_id=repo_id,
+            project_id=project_id,
+            labels={}
+        )
+        
+        # Extract issues for field value setting and dependencies
+        task_issue_map = hierarchy["task_issues"]
+        group_issue_map = hierarchy["group_issues"]
+        
+        # Set custom field values on task and group issues
+        console.print("\n[bold cyan]Step 7:[/bold cyan] Setting custom field values")
+        issue_manager = IssueManager(self.client, repo_id)
+        issue_manager.set_field_values_all(
+            doc=doc,
+            project_id=project_id,
+            task_issue_map=task_issue_map,
+            group_issue_map=group_issue_map,
+            field_ids=field_ids
+        )
+        
+        # Create dependencies
+        console.print("\n[bold cyan]Step 8:[/bold cyan] Setting up dependencies")
+        issue_manager.create_dependencies(dep_graph, task_issue_map)
+        
+        # Update sync state
+        console.print("\n[bold cyan]Step 9:[/bold cyan] Updating sync state")
+        content_hash = self._calculate_hash(content)
+        config.last_synced_at = datetime.utcnow().isoformat() + "Z"
+        config.last_synced_tasks_md_hash = content_hash
+        save_config(project_root, config)
+        
+        console.print(f"\n[bold green]✓ Sync complete![/bold green]")
+        console.print(f"\n[cyan]Project URL:[/cyan] {project_url}")
+        console.print(f"[cyan]Hierarchy:[/cyan] {len(hierarchy['phase_issues'])} phases, {len(hierarchy['group_issues'])} groups, {len(task_issue_map)} tasks")
+        
+        return config
+
+    def _print_dry_run_plan(
+        self,
+        doc: TasksDocument,
+        dep_graph,
+        config: GitHubProjectsConfig,
+    ) -> None:
+        """Print what a real sync would do without making any API calls."""
+        console.print("\n[bold yellow]──────────────────────────────────────────[/bold yellow]")
+        console.print("[bold yellow]DRY RUN – no changes will be made to GitHub[/bold yellow]")
+        console.print("[bold yellow]──────────────────────────────────────────[/bold yellow]\n")
+
+        # Project
+        if config.project_id:
+            console.print(f"[cyan]Project:[/cyan] Would update existing project {config.project_url}")
+        else:
+            console.print(f"[cyan]Project:[/cyan] Would create new project "
+                          f"\"Spec-Kit: {doc.title}\" for {config.repo_owner}/{config.repo_name}")
+
+        # Hierarchy summary table
+        table = Table(title="Issues that would be created/updated", show_lines=True)
+        table.add_column("Type", style="cyan")
+        table.add_column("Title")
+        table.add_column("Parent")
+
+        for phase in doc.phases:
+            table.add_row("Phase", f"Phase {phase.number}: {phase.title}", "–")
+            for group in phase.groups:
+                table.add_row("Task Group", group.title, f"Phase {phase.number}")
+                group_tasks = [
+                    t for t in doc.all_tasks
+                    if t.phase_number == phase.number and t.group_title == group.title
+                ]
+                for task in group_tasks:
+                    table.add_row("Task", f"[{task.id}] {task.description[:60]}", group.title)
+            for task in phase.direct_tasks:
+                table.add_row("Task", f"[{task.id}] {task.description[:60]}", f"Phase {phase.number}")
+
+        console.print(table)
+
+        # Dependency summary
+        total_deps = sum(len(v) for v in dep_graph.dependencies.values())
+        console.print(f"\n[cyan]Dependencies:[/cyan] {total_deps} links would be created")
+        console.print(f"[cyan]Custom fields:[/cyan] Task ID, Phase, User Story, Priority, Parallel")
+        console.print("\n[bold yellow]Dry run complete. Re-run without --dry-run to apply.[/bold yellow]")
+
+    def _get_repository_info(self, owner: str, name: str) -> Dict[str, Any]:
+        """Get repository information."""
+        variables = {"owner": owner, "name": name}
+        result = self.client.execute(GET_REPOSITORY_QUERY, variables)
+        return result["repository"]
+    
+    def _calculate_hash(self, content: str) -> str:
+        """Calculate SHA256 hash of content."""
+        return hashlib.sha256(content.encode()).hexdigest()
+    
+    def needs_sync(self, tasks_file: Path, config: GitHubProjectsConfig) -> bool:
+        """
+        Check if sync is needed.
+        
+        Args:
+            tasks_file: Path to tasks.md file
+            config: Current configuration
+            
+        Returns:
+            True if sync is needed
+        """
+        # No project yet
+        if not config.project_id:
+            return True
+        
+        # Never synced
+        if not config.last_synced_tasks_md_hash:
+            return True
+        
+        # Check if content changed
+        content = tasks_file.read_text()
+        current_hash = self._calculate_hash(content)
+        
+        return current_hash != config.last_synced_tasks_md_hash
