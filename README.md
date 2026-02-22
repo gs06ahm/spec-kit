@@ -174,6 +174,8 @@ The `specify` command supports the following options:
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `init`  | Initialize a new Specify project from the latest template                                                                                               |
 | `check` | Check for installed tools (`git`, `claude`, `gemini`, `code`/`code-insiders`, `cursor-agent`, `windsurf`, `qwen`, `opencode`, `codex`, `shai`, `qoder`) |
+| `projects` | Manage GitHub Projects v2 integration (`enable`, `disable`, `status`, `sync [--dry-run]`) |
+| `extension` | Manage spec-kit extensions (`list`, `add`, `remove`, `search`, `info`, `update`, `enable`, `disable`) |
 
 ### `specify init` Arguments & Options
 
