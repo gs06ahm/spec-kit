@@ -1,6 +1,33 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-02-03T00:00:00Z",
+  "updated_at": "2026-02-22T00:00:00Z",
   "catalog_url": "https://raw.githubusercontent.com/github/spec-kit/main/extensions/catalog.json",
-  "extensions": {}
+  "extensions": {
+    "github-projects": {
+      "name": "GitHub Projects Integration",
+      "id": "github-projects",
+      "description": "Sync tasks.md specs to GitHub Projects v2 with a three-level issue hierarchy",
+      "author": "spec-kit",
+      "version": "1.0.0",
+      "download_url": "https://github.com/gs06ahm/spec-kit/archive/refs/heads/main.zip",
+      "repository": "https://github.com/gs06ahm/spec-kit",
+      "homepage": "https://github.com/gs06ahm/spec-kit/blob/main/GITHUB_PROJECTS.md",
+      "documentation": "https://github.com/gs06ahm/spec-kit/blob/main/GITHUB_PROJECTS.md",
+      "changelog": "https://github.com/gs06ahm/spec-kit/blob/main/CHANGELOG.md",
+      "license": "MIT",
+      "requires": {
+        "speckit_version": ">=0.2.0"
+      },
+      "provides": {
+        "commands": 2,
+        "hooks": 1
+      },
+      "tags": ["github", "projects", "issue-tracking", "tasks"],
+      "verified": true,
+      "downloads": 0,
+      "stars": 0,
+      "created_at": "2026-02-22T00:00:00Z",
+      "updated_at": "2026-02-22T00:00:00Z"
+    }
+  }
 }

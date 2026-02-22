@@ -1,0 +1,21 @@
+# GitHub Projects Integration Configuration
+#
+# This file configures the spec-kit GitHub Projects extension.
+# Copy this file to github-projects-config.yml and edit as needed.
+#
+# IMPORTANT: If you set github.token here, add this file to .gitignore
+# to avoid committing credentials.
+
+github:
+  # GitHub personal access token (optional).
+  # Required scopes: repo, project
+  # Alternatively, set the GH_TOKEN or GITHUB_TOKEN environment variable.
+  token: ""
+
+  # Always preview changes without writing to GitHub.
+  # Set to true to default every sync to --dry-run.
+  dry_run: false
+
+  # Automatically sync tasks.md when the after_tasks hook fires,
+  # without prompting the user.
+  auto_sync: false

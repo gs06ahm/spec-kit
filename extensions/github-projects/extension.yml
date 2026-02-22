@@ -1,0 +1,50 @@
+schema_version: "1.0"
+
+extension:
+  id: "github-projects"
+  name: "GitHub Projects Integration"
+  version: "1.0.0"
+  description: "Sync tasks.md specs to GitHub Projects v2 with a three-level issue hierarchy"
+  author: "spec-kit"
+  repository: "https://github.com/gs06ahm/spec-kit"
+  license: "MIT"
+  homepage: "https://github.com/gs06ahm/spec-kit/blob/main/GITHUB_PROJECTS.md"
+
+requires:
+  speckit_version: ">=0.2.0"
+
+provides:
+  commands:
+    - name: "speckit.github-projects.sync"
+      file: "commands/sync.md"
+      description: "Sync tasks.md to GitHub Projects v2"
+      aliases: ["speckit.github-projects.push"]
+
+    - name: "speckit.github-projects.enable"
+      file: "commands/enable.md"
+      description: "Enable GitHub Projects integration for this repository"
+
+  config:
+    - name: "github-projects-config.yml"
+      template: "config-template.yml"
+      description: "GitHub Projects integration settings"
+      required: false
+
+hooks:
+  after_tasks:
+    command: "speckit.github-projects.sync"
+    optional: true
+    prompt: "Sync updated tasks.md to GitHub Projects?"
+    description: "Push the newly-generated task hierarchy to GitHub Projects v2"
+    condition: null
+
+tags:
+  - "github"
+  - "projects"
+  - "issue-tracking"
+  - "tasks"
+
+defaults:
+  github:
+    dry_run: false
+    auto_sync: false
