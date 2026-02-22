@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **GitHub Projects Extension** (`extensions/github-projects/`): first-party spec-kit
+  extension that delivers AI agent commands for the GitHub Projects integration
+  - `speckit.github-projects.enable` – guide AI agent through `specify projects enable`
+  - `speckit.github-projects.sync` – guide AI agent through `specify projects sync`
+  - `after_tasks` hook – prompts AI to sync after generating `tasks.md`
+  - `config-template.yml` – per-project token and preference overrides
+  - Registered in `extensions/catalog.json`
 - **GitHub Projects Integration**: Sync `tasks.md` specs to GitHub Projects v2
   - New `specify projects` command group:
     - `specify projects enable [--force]` – Configure repository integration (replaces interactive `input()` prompt with `--force` flag)

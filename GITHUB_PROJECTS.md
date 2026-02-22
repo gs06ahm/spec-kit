@@ -2,6 +2,33 @@
 
 Specify CLI can automatically synchronize your `tasks.md` spec files with a **GitHub Projects v2** board, creating a three-level issue hierarchy (Phase → Task Group → Task) with custom fields and dependency links.
 
+## Installation as a Spec-Kit Extension
+
+The GitHub Projects integration ships as a first-party **spec-kit extension**.
+Install it with:
+
+```bash
+specify extension add extensions/github-projects
+```
+
+Once installed, your AI agent (Claude, Copilot, Gemini, etc.) gains two new
+slash commands:
+
+| Command | What it does |
+|---------|-------------|
+| `/speckit.github-projects.enable` | Enable and configure the integration |
+| `/speckit.github-projects.sync` | Sync `tasks.md` → GitHub Projects v2 |
+
+The extension also registers an `after_tasks` hook that prompts your AI agent
+to sync whenever `/speckit.tasks` generates a new `tasks.md`.
+
+To view the extension in the catalog:
+```bash
+specify extension search github-projects
+```
+
+---
+
 ## Quick Start
 
 ### 1. Enable the integration
