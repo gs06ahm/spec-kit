@@ -240,6 +240,88 @@ def test_dry_run_returns_unchanged_config(tmp_path):
     assert returned.last_synced_at is None
 
 
+def test_sync_engine_invokes_completion_state_sync(monkeypatch, tmp_path):
+    """Full sync flow invokes completion-state sync with parsed tasks."""
+
+    class FakeProjectCreator:
+        def __init__(self, client):
+            self.client = client
+
+        def setup_custom_fields(self, project_id, phases, user_stories):
+            return {}
+
+    class FakeHierarchyBuilder:
+        def __init__(self, client):
+            self.client = client
+
+        def create_hierarchy(self, doc, repo_id, project_id, labels):
+            return {
+                "phase_issues": {},
+                "group_issues": {},
+                "task_issues": {"T001": {"id": "ISSUE_1", "number": 1, "state": "OPEN"}},
+            }
+
+    called: Dict[str, Any] = {"sync_completion_states": False}
+
+    class FakeIssueManager:
+        def __init__(self, client, repo_id):
+            self.client = client
+            self.repo_id = repo_id
+
+        def set_field_values_all(self, **kwargs):
+            return None
+
+        def sync_completion_states(self, doc, task_issue_map):
+            called["sync_completion_states"] = True
+            called["is_completed"] = next(t for t in doc.all_tasks if t.id == "T001").is_completed
+            called["task_issue_map"] = task_issue_map
+
+        def create_dependencies(self, dep_graph, task_issue_map):
+            return None
+
+    monkeypatch.setattr("specify_cli.github.sync_engine.ProjectCreator", FakeProjectCreator)
+    monkeypatch.setattr("specify_cli.github.sync_engine.HierarchyBuilder", FakeHierarchyBuilder)
+    monkeypatch.setattr("specify_cli.github.sync_engine.IssueManager", FakeIssueManager)
+
+    client = FakeGraphQLClient()
+    engine = SyncEngine(client)
+    monkeypatch.setattr(
+        engine,
+        "_get_repository_info",
+        lambda owner, name: {"id": "REPO_1", "owner": {"id": "OWNER_1"}},
+    )
+
+    tasks_file = tmp_path / "tasks.md"
+    tasks_file.write_text(
+        """\
+# Tasks: Completion Sync
+
+## Phase 1: Setup
+- [X] T001 Completed task
+"""
+    )
+
+    config = GitHubProjectsConfig(
+        enabled=True,
+        repo_owner="test-owner",
+        repo_name="test-repo",
+        project_id="PROJECT_1",
+        project_number=1,
+        project_url="https://example.test/projects/1",
+    )
+
+    engine.sync_tasks_to_project(
+        tasks_file=tasks_file,
+        config=config,
+        project_root=tmp_path,
+        dry_run=False,
+    )
+
+    assert called["sync_completion_states"] is True
+    assert called["is_completed"] is True
+    assert called["task_issue_map"]["T001"]["id"] == "ISSUE_1"
+
+
 # ---------------------------------------------------------------------------
 # Idempotency tests (requirement 3)
 # ---------------------------------------------------------------------------
@@ -362,6 +444,7 @@ def test_get_project_item_id_uses_pagination():
 
 
 def test_sync_completion_states_updates_issue_states():
+    """Completed/incomplete task states are synced to CLOSED/OPEN issues."""
     doc = parse_tasks_md(
         """\
 # Tasks: Completion State
@@ -389,6 +472,7 @@ def test_sync_completion_states_updates_issue_states():
 
 
 def test_sync_completion_states_is_idempotent():
+    """No updateIssue call is made when issue state already matches task completion."""
     doc = parse_tasks_md(
         """\
 # Tasks: Completion State

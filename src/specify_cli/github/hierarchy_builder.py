@@ -246,6 +246,7 @@ class HierarchyBuilder:
             "title": issue["title"],
             "url": issue["url"],
             "body": body,
+            "state": "OPEN",
             "parent": {"id": parent_issue_id} if parent_issue_id else None,
         }
         self._existing_issues_by_title.setdefault(title, []).append(cached_issue)
