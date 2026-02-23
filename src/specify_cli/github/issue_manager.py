@@ -8,6 +8,7 @@ from .mutations import (
     ADD_PROJECT_ITEM_MUTATION,
     UPDATE_FIELD_VALUE_MUTATION,
     ADD_BLOCKED_BY_MUTATION,
+    UPDATE_ISSUE_MUTATION,
 )
 from ..parser.models import Task, Phase, StoryGroup, TasksDocument, DependencyGraph
 
@@ -378,4 +379,36 @@ class IssueManager:
         console.print(
             f"[green]✓ Dependencies linked:[/green] {created_links} created"
             + (f", {skipped_links} skipped" if skipped_links else "")
+        )
+
+    def sync_completion_states(
+        self,
+        doc: TasksDocument,
+        task_issue_map: Dict[str, Dict[str, Any]],
+    ) -> None:
+        """Sync task completion state to GitHub issue state."""
+        updated = 0
+        skipped = 0
+
+        for task in doc.all_tasks:
+            issue = task_issue_map.get(task.id)
+            if not issue:
+                skipped += 1
+                continue
+
+            desired_state = "CLOSED" if task.is_completed else "OPEN"
+            current_state = (issue.get("state") or "OPEN").upper()
+            if current_state == desired_state:
+                continue
+
+            self.client.execute(
+                UPDATE_ISSUE_MUTATION,
+                {"input": {"id": issue["id"], "state": desired_state}},
+            )
+            issue["state"] = desired_state
+            updated += 1
+
+        console.print(
+            f"[green]✓ Synced task completion states:[/green] {updated} updated"
+            + (f", {skipped} skipped" if skipped else "")
         )

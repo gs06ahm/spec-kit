@@ -242,6 +242,7 @@ class HierarchyBuilder:
         cached_issue = {
             "id": issue["id"],
             "number": issue["number"],
+            "state": "OPEN",
             "title": issue["title"],
             "url": issue["url"],
             "body": body,
@@ -276,6 +277,7 @@ class HierarchyBuilder:
                 nodes {
                   id
                   number
+                  state
                   title
                   url
                   body

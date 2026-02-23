@@ -29,6 +29,7 @@ class FakeGraphQLClient:
     def __init__(self):
         self.next_issue_number = 1
         self.created_issue_inputs: List[Dict] = []
+        self.update_issue_inputs: List[Dict] = []
         self.repo_issues: List[Dict] = []
         self.add_project_item_calls: int = 0
         self.blocked_by_calls: List[tuple] = []
@@ -105,6 +106,7 @@ class FakeGraphQLClient:
             issue_data = {
                 "id": issue_id,
                 "number": issue_number,
+                "state": "OPEN",
                 "title": issue_input["title"],
                 "url": f"https://example.test/issues/{issue_number}",
                 "body": issue_input.get("body", ""),
@@ -132,13 +134,17 @@ class FakeGraphQLClient:
 
         # --- update issue ---
         if "mutation UpdateIssue" in query:
-            issue_id = variables["input"]["id"]
-            body = variables["input"].get("body", "")
+            issue_input = variables["input"]
+            issue_id = issue_input["id"]
+            self.update_issue_inputs.append(issue_input)
             for issue in self.repo_issues:
                 if issue["id"] == issue_id:
-                    issue["body"] = body
+                    if "body" in issue_input:
+                        issue["body"] = issue_input["body"]
+                    if "state" in issue_input:
+                        issue["state"] = issue_input["state"]
                     break
-            return {"updateIssue": {"issue": {"id": issue_id, "state": "OPEN"}}}
+            return {"updateIssue": {"issue": {"id": issue_id, "state": issue_input.get("state", "OPEN")}}}
 
         raise AssertionError(f"Unexpected query in FakeGraphQLClient:\n{query[:120]}")
 
@@ -353,6 +359,56 @@ def test_get_project_item_id_uses_pagination():
 
     item_id = manager._get_project_item_id("PROJECT_1", 42)
     assert item_id == "ITEM_3"
+
+
+def test_sync_completion_states_updates_issue_states():
+    doc = parse_tasks_md(
+        """\
+# Tasks: Completion State
+
+## Phase 1: Setup
+- [X] T001 Completed task
+- [ ] T002 Pending task
+"""
+    )
+    client = FakeGraphQLClient()
+    manager = IssueManager(client, repo_id="REPO_1")
+    task_issue_map = {
+        "T001": {"id": "ISSUE_1", "number": 1, "state": "OPEN"},
+        "T002": {"id": "ISSUE_2", "number": 2, "state": "CLOSED"},
+    }
+
+    manager.sync_completion_states(doc, task_issue_map)
+
+    assert client.update_issue_inputs == [
+        {"id": "ISSUE_1", "state": "CLOSED"},
+        {"id": "ISSUE_2", "state": "OPEN"},
+    ]
+    assert task_issue_map["T001"]["state"] == "CLOSED"
+    assert task_issue_map["T002"]["state"] == "OPEN"
+
+
+def test_sync_completion_states_is_idempotent():
+    doc = parse_tasks_md(
+        """\
+# Tasks: Completion State
+
+## Phase 1: Setup
+- [X] T001 Completed task
+- [ ] T002 Pending task
+"""
+    )
+    client = FakeGraphQLClient()
+    manager = IssueManager(client, repo_id="REPO_1")
+    task_issue_map = {
+        "T001": {"id": "ISSUE_1", "number": 1, "state": "CLOSED"},
+        "T002": {"id": "ISSUE_2", "number": 2, "state": "OPEN"},
+    }
+
+    manager.sync_completion_states(doc, task_issue_map)
+    manager.sync_completion_states(doc, task_issue_map)
+
+    assert client.update_issue_inputs == []
 
 
 # ---------------------------------------------------------------------------

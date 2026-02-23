@@ -143,13 +143,20 @@ class SyncEngine:
             group_issue_map=group_issue_map,
             field_ids=field_ids
         )
-        
+
+        # Sync completion states (tasks.md checkboxes -> issue open/closed state)
+        console.print("\n[bold cyan]Step 8:[/bold cyan] Syncing task completion states")
+        issue_manager.sync_completion_states(
+            doc=doc,
+            task_issue_map=task_issue_map,
+        )
+
         # Create dependencies
-        console.print("\n[bold cyan]Step 8:[/bold cyan] Setting up dependencies")
+        console.print("\n[bold cyan]Step 9:[/bold cyan] Setting up dependencies")
         issue_manager.create_dependencies(dep_graph, task_issue_map)
-        
+
         # Update sync state
-        console.print("\n[bold cyan]Step 9:[/bold cyan] Updating sync state")
+        console.print("\n[bold cyan]Step 10:[/bold cyan] Updating sync state")
         content_hash = self._calculate_hash(content)
         config.last_synced_at = datetime.utcnow().isoformat() + "Z"
         config.last_synced_tasks_md_hash = content_hash
